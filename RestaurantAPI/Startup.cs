@@ -98,7 +98,7 @@ namespace RestaurantAPI
             });
 
             services.AddDbContext<RestaurantDbContext>
-                (options => options.UseSqlServer(Configuration.GetConnectionString("RestaurantDbConnection")));
+                ( options => options.UseSqlServer(Configuration.GetConnectionString("RestaurantDbConnection")));
 
         }
 

@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "RestaurantAp.IntegrationTestsMy": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:58448;http://localhost:58449"
+    }
+  }
+}
