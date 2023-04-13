@@ -1,9 +1,8 @@
 ﻿using System.Net;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using FluentAssertions;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -12,7 +11,6 @@ using RestaurantAPI.Controllers;
 using RestaurantAPI.Entities;
 using RestaurantAPI.Models;
 using RestaurantAPI.Services;
-
 
 namespace RestaurantAPI.IntegrationTestsMy;
 
@@ -40,6 +38,10 @@ public class RestaurantControllerTests : IClassFixture<WebApplicationFactory<Sta
                 {
                     options.UseInMemoryDatabase("RestaurantDb"); // this name is not important
                 });
+
+                services.AddSingleton<IPolicyEvaluator, FakePolicyEvaluator>();
+
+                services.AddMvc(options => options.Filters.Add(new FakeUserFilter()));
             });
         });
 
@@ -82,14 +84,14 @@ public class RestaurantControllerTests : IClassFixture<WebApplicationFactory<Sta
 
         var restaurantController = new RestaurantController(service);
 
-        var response =  restaurantController.GetAll(new RestaurantQuery());
+        var response = restaurantController.GetAll(new RestaurantQuery());
 
         response.Result.Should().BeAssignableTo<OkObjectResult>();
     }
 
     //we test endpoint that creates new restaurant.
     [Fact]
-    public async Task CreateRestaura_WithVaolidModel_Returns_CreatedStatus()
+    public async Task CreateRestaura_WithValidModel_Returns_CreatedStatus()
     {
         //Arrange
         var model = new CreateRestaurantDto()
@@ -99,15 +101,12 @@ public class RestaurantControllerTests : IClassFixture<WebApplicationFactory<Sta
             Street = "Dluga5 "
         };
 
-
         /*PostAsync requires httpContext parameter.
          StringContent inherits from httpContent so we cna use stringContent as httpContent
         we need to serialize out model to pass it as json to StringContent.
          */
 
-        var json = JsonSerializer.Serialize(model);
-
-        var httpContent = new StringContent(json, Encoding.UTF8,"application/json");
+        var httpContent = model.ToJsonHttpContent();
 
         //Act
         var response = await _client.PostAsync("/api/restaurant", httpContent);
@@ -116,5 +115,100 @@ public class RestaurantControllerTests : IClassFixture<WebApplicationFactory<Sta
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.Created);
         //we also check if server response contains header with location.
         response.Headers.Location.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task CreateRestaura_With_InvalidModel_Returns_BadRequest()
+    {
+        //Arrange
+        var model = new CreateRestaurantDto()
+        {
+            City = "Krakow",
+            Street = "Dluga5"
+        };
+
+        //var json = JsonSerializer.Serialize(model);
+
+        //var httpContent = new StringContent(json, Encoding.UTF8, "application/json");
+
+        var httpContent = model.ToJsonHttpContent();
+
+        //Act
+        var response = await _client.PostAsync("/api/restaurant", httpContent);
+
+        //Assert
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Delete_ForNonExistingRstaurant_returns_NotFound()
+    {
+        //Arrange
+        var unknownId = 99;
+
+        //Act
+        var response = await _client.DeleteAsync($"api/restaurant/{unknownId}");
+
+        //Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Delete_ExistingRestaurant_returns_NoContent()
+    {
+        //Arrange
+
+        var restaurant = new Restaurant()
+        {
+            CreatedById = 1,
+            Name = "test"
+        };
+
+        ////dbContext is created in scope so we ned to get scope first before we get dbContext;
+        //var scopeFactory = _factory.Services.GetService<IServiceScopeFactory>();
+        //using var scope = scopeFactory?.CreateScope();
+        //var dbContext = scope?.ServiceProvider.GetService<RestaurantDbContext>();
+
+        //dbContext?.Restaurants.Add(restaurant);
+        //await dbContext?.SaveChangesAsync()!;   //we need to save changes
+
+        await SeedRestaurant(restaurant);
+
+        //Act
+        var response = await _client.DeleteAsync($"api/restaurant/{restaurant.Id}");
+
+        //Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Delete_For_NonRestaurantOwner_ReturnsForbidden()
+    {
+        //Arrange
+        var restaurant = new Restaurant()
+        {
+            CreatedById = 999,
+            Name = "test2"
+        };
+
+        await SeedRestaurant(restaurant);   
+
+        //Act
+        var response = await _client.DeleteAsync($"api/restaurant/{restaurant.Id}");
+
+        //Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+
+    private async Task SeedRestaurant(Restaurant restaurant)
+    {
+        //dbContext is created in scope so we ned to get scope first before we get dbContext;
+        var scopeFactory = _factory.Services.GetService<IServiceScopeFactory>();
+        using var scope = scopeFactory?.CreateScope();
+        var dbContext = scope?.ServiceProvider.GetService<RestaurantDbContext>();
+
+        dbContext?.Restaurants.Add(restaurant);
+        await dbContext?.SaveChangesAsync()!;   //we need to save changes
     }
 }
